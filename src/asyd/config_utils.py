@@ -1,8 +1,12 @@
 from dataclasses import dataclass, field, Field
-from typing import TypeVar, Callable, Any, cast
+from typing import TypeVar, Callable, Any, cast, Dict
+from typing_extensions import Protocol
 from abc import ABCMeta as NativeABCMeta
 
 MV: Any = "???"
+
+
+# https://stackoverflow.com/questions/23831510/abstract-attribute-not-property
 
 class DummyAttribute:
     pass

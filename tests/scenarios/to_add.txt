@@ -1,0 +1,5 @@
+trigger all error types
+complex dependencies
+child depends on parent
+all query ops
+overlapping defaults.yaml and defaults folder (in a way that is OK)

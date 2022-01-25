@@ -16,12 +16,12 @@ class BaseConfig(Config):
     nested_config: NestedConfig = NestedConfig()
 ```
 ... would have the following folder structure:
-
+```
 config/
   defaults.yaml
   nested_config/
     defaults.yaml
-
+```
 
 You may notice a value of "MV" applied to many parameters. This stands for
 "Missing Value" and allows defaults to be defined in the folder structure
@@ -49,12 +49,12 @@ class BaseConfig(Config):
     nested_config_a: NestedConfigA = NestedConfigA()
     nested_config_b: NestedConfigB = NestedConfigB()
 ```
-
+```
 config/
   nested_config_a/
   nested_config_b/
     defaults.yaml/
-
+```
 nested_config_b/defaults.yaml:
 ```
 ?nested_config_a.field_a:
@@ -75,7 +75,7 @@ be two nested layers. However, queries can be nested as desired.
 You can always do this under two conditions:
   1. All accessed config objects are added to the _default_dependencies set in
      the schema with a ConfigRef. (in the example, ```_default_dependencies =
-     { ConfigRef{"nested_config_a"} }```)
+     { ConfigRef("nested_config_a") }```)
   2. There are no circular dependencies. (Note: Referencing a nested config does
      not necessarily require that the parent config be built already. This means
      that, in this example, the default for some_field could depend on field_a
@@ -86,7 +86,7 @@ You can include a defaults folder instead of or in addition to a defaults.yaml
 that works exactly the same way as defaults.yaml where query structure can be
 specified either in folder names and file names or in nested defaults.yaml files.
 The last example could look like:
-
+```
 config/
   nested_config_a/
   nested_config_b/
@@ -95,8 +95,9 @@ config/
         \>50.yaml  # contains "field_b: 51"
         \<50.yaml  # contains "field_b: 49"
         =50.yaml  # contains "field_b: 50"
-
+```
 ... and if nested_config_a had a second parameter field_a2 ...
+```
 config/
   nested_config_a/
   nested_config_b/
@@ -111,7 +112,7 @@ config/
             \>0.yaml  # contains field_b: 49
             \<=0.yaml  # contains field_b: 48
         =50.yaml  # contains "field_b: 49"
-
+```
 
 
 MultiConfigs:
@@ -140,7 +141,7 @@ class BaseConfig(Config):
     nested_config: NestedConfig = NestedConfig()
     nested_multi_config: MultiConfig = NestedMultiConfig()
 ```
-
+```
 config/
   defaults.yaml
   nested_config/
@@ -152,3 +153,4 @@ config/
       defaults.yaml
     third/
       defaults.yaml
+```

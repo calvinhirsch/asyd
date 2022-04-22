@@ -1,10 +1,7 @@
 from dataclasses import dataclass, field
-from asyd import Config, MultiConfig, ConfigRef, MV, build, yamlize
+from asyd import Config, MCMeta, ConfigRef, MV, build, yamlize
 import pathlib
 
-@dataclass
-class ParentConfig(Config):
-    pass
 
 @dataclass
 class ConfigA(Config):
@@ -14,12 +11,13 @@ class ConfigA(Config):
 class ConfigB(Config):
     field_b: str = MV
 
-class SomeMulti(MultiConfig[ParentConfig]):
-    _options = {
-        "first": ConfigA,
-        "second": ConfigA,
-        "third": ConfigB
-    }
+class SomeMulti(metaclass=MCMeta,
+                options = {
+                    "first": ConfigA,
+                    "second": ConfigA,
+                    "third": ConfigB
+                }):
+    pass
 
 @dataclass
 class BaseConfig(Config):

@@ -31,7 +31,7 @@ def test():
                 raise Exception("Test scenario must have expected result or expected exception.")
 
             try:
-                cfg = build(import_py_file(config_file).BaseConfig, scenario_path / "config", args=[] if args == "" else args.split(" "))
+                cfg = build(import_py_file(config_file).BaseConfig, scenario_path / "config", arguments=[] if args == "" else args.split(" "))
             except Exception as e:
                 raise e
                 assert type(e).__name__ == expected_exception

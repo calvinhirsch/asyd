@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from asyd import Config, MultiConfig, ConfigRef, MV, build, yamlize
+from asyd import Config, ConfigRef, MV, build, yamlize
 import pathlib
 
 

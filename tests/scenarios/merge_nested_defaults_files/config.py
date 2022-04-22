@@ -2,12 +2,11 @@ from dataclasses import dataclass, field
 from asyd import Config, ConfigRef, MV, build, yamlize
 import pathlib
 
-
 @dataclass
 class NestedConfig(Config):
-    some_nested_field: int = MV
+    field_a: int = MV
+    field_b: int = MV
 
 @dataclass
 class BaseConfig(Config):
-    some_field: str = MV
-    nested_config: NestedConfig = NestedConfig()
+    nested_conf: NestedConfig = MV

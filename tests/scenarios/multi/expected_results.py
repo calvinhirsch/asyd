@@ -1,29 +1,19 @@
 expected_results = {
-    "": {
-        "exception": None,
-        "result": {
-            "some_field": "???",
-            "some_multi":  {
-                "_selected": "first",
-                "field_a": "???"
-            }
-        }
-    },
-    "--some_field=yes": {
-        "exception": None,
-        "result": {
-            "some_field": "yes",
-            "some_multi":  {
-                "_selected": "first",
-                "field_a": "???"
-            }
-        }
-    },
     "--some_multi=first": {
         "exception": None,
         "result": {
             "some_field": "???",
             "some_multi": {
+                "_selected": "first",
+                "field_a": "???"
+            }
+        }
+    },
+    "--some_field=yes --some_multi=first": {
+        "exception": None,
+        "result": {
+            "some_field": "yes",
+            "some_multi":  {
                 "_selected": "first",
                 "field_a": "???"
             }

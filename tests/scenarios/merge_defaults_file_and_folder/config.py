@@ -4,10 +4,6 @@ import pathlib
 
 
 @dataclass
-class NestedConfig(Config):
-    some_nested_field: int = MV
-
-@dataclass
 class BaseConfig(Config):
-    some_field: str = MV
-    nested_config: NestedConfig = NestedConfig()
+    field_a: int = MV
+    field_b: int = MV

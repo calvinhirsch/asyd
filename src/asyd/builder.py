@@ -1,9 +1,10 @@
 from typing import Type, TypeVar, Dict, List, Callable, Union, Optional
+from argparse import ArgumentParser
 from .config import Config, MultiConfig, ConfigRef, validate_refs
 from .config_utils import MV
 from .dependencies import generate_acyclic_traveral
 from .argparsing import parse
-from .exceptions import EverythingHasBrokenException, RedundantDefaultException, InvalidDefaultFileException
+from .exceptions import EverythingHasBrokenException, RedundantDefaultException, InvalidDefaultFileException, InvalidLoadedConfigException
 from pathlib import Path
 import yaml
 import warnings
@@ -22,7 +23,7 @@ QUERY_OPS: Dict[str, Callable[[str, str], bool]] = {
 
 
 T = TypeVar("T", bound=Config)
-def build(base_schema: Type[T], directory: str, args: List[str] = []) -> T:
+def build(base_schema: Type[T], directory: str,  parser: Optional[ArgumentParser] = None, args: List[str] = [], load_path: str = None) -> T:
     '''
     This is the main function that calls everything else. Validates the
     references in a schema (a class that inherits from Config), generates a
@@ -42,26 +43,164 @@ def build(base_schema: Type[T], directory: str, args: List[str] = []) -> T:
     # Validate schemas and their dependencies
     validate_refs(base_schema)
 
-    # Ensure dependencies are not cyclic and create build order
-    build_order = generate_acyclic_traveral(base_schema)
+    print(base_schema)
 
     # Get command line args
-    args = parse(base_schema, args)
+    args = parse(base_schema, parser, args)
 
-    # Build config
+    # Load config if provided
+    load_path = args["load_path"] if load_path is None else load_path
+    loaded_config = None
+    if not load_path is None:
+        path = Path(load_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Load path {load_path} does not exist.")
+        if path.is_dir():
+            raise IsADirectoryError(f"Load path {load_path} should be a yaml file but it is a directory.")
+
+        with path.open() as f:
+            loaded_config = yaml.load(f, Loader=yaml.CLoader)
+
+    # Check provided directory
     path = Path(directory)
     if not path.is_dir():
         raise NotADirectoryError("Provided configuration base directory {} is not a folder.".format(directory))
 
+    # Build defaults tree
+    defaults_tree = build_defaults_tree(base_schema, path)
+
+    # Ensure dependencies are not cyclic and create build order
+    build_order = generate_acyclic_traveral(base_schema)
+
+    # Build config
     config = base_schema()
 
-    base_dir = Path(directory)
     for schema_path in build_order:
-        build_config(config, schema_path, base_dir, args)
+        build_config(config, defaults_tree, schema_path, path, args, loaded_config=None if loaded_config is None else get_loaded_config(loaded_config, schema_path))
 
     return config
 
-def build_config(base_config: T, schema_path: str, base_dir: Path, args: Dict) -> None:
+
+def build_defaults_tree(schema: Type[T], dir: Path):
+    '''
+    Builds the defaults tree for a schema with a corresponding directory. First
+    parses the defaults.yaml file and the defaults folder and merges them, then
+    recursively builds defaults trees for nested configs and merges the original
+    tree with them. In the case of a multiconfig, defaults from the parent
+    directory get copied to all the option directories.
+
+            Parameters:
+                    schema (Type[T]): The schema to build the defaults tree for
+                    dir (Path): The directory corresponding to the schema
+
+            Returns:
+                    tree (Dict): The constructed defaults tree
+
+    '''
+    tree = {}
+    if not dir.exists():
+        return tree
+
+    possible_defaults_files = [dir / ("defaults" + ext) for ext in YAML_EXTS]
+    for df in possible_defaults_files:
+        if df.exists():
+            with open(df) as f:
+                tree = yaml.load(f, Loader=yaml.CLoader)
+            break
+
+    folder_tree = parse_defaults_dir(dir / "defaults") if (dir / "defaults").exists() else {}
+    if len(tree) < 1:
+        tree = folder_tree
+    elif len(folder_tree) < 1:
+        pass
+    else:
+        merge_defaults_trees(tree, folder_tree, override=True) # override to maintain standard of more nested folders have higher priority
+
+    if issubclass(schema, MultiConfig):
+        parent_tree = tree
+        tree = {}
+
+        # Parse individual option schemas and copy parent schema into each
+        for option, option_schema in schema._options.items():
+            tree[option] = build_defaults_tree(option_schema, dir / option)
+            merge_defaults_trees(tree[option], parent_tree)
+    else:
+        # Recursively build tree for nested configs/folders and then merge
+        for field, v in schema.__dataclass_fields__.items():
+            if issubclass(v.type, Config) or issubclass(v.type, MultiConfig):
+                subdir = dir / field
+                if subdir.exists():
+                    subtree = build_defaults_tree(v.type, subdir)
+                    if field in tree:
+                        merge_defaults_trees(tree[field], subtree)
+                    else:
+                        tree[field] = subtree
+
+    return tree
+
+def parse_defaults_dir(dir: Path):
+    '''
+    Parses a defaults directory into a single defaults tree/dictionary.
+    Basically just converts folder structure to dictionary structure.
+
+            Parameters:
+                    dir (Path): The defaults directory
+
+            Returns:
+                    tree (Dict): The constructed defaults tree
+
+    '''
+    d = {}
+    for f in dir.iterdir():
+        name = None
+
+        if f.is_dir():
+            name = f
+            d[name] = defaults_tree_from_dir(base_config, f)
+        else:
+            for ext in YAML_EXTS:
+                if str(f).endswith(ext):
+                    name = str(f).split(".")[0]
+                    with f.open() as file:
+                        if name in d:
+                            if name[-1] != "!":
+                                raise RedundantDefaultException(f"Field {name} appeared in the defaults tree multiple times. Use override (!) at the end of field name to allow.")
+                        else:
+                            d[name] = yaml.load(file, Loader=yaml.CLoader)
+                    break
+
+            if name is None:
+                raise warnings.warn(f"Unknown file {str(f)} found in defaults folder {dir}. Ignoring.")
+
+    return d
+
+def merge_defaults_trees(tree: Dict, new_tree: Dict, override=False):
+    '''
+    Merges new_tree into tree without overriding. Raises
+    RedundantDefaultException if a value appears twice that is not marked as an
+    override (!). Modifies tree.
+
+            Parameters:
+                    tree (Dict): First defaults tree
+                    new_tree (Dict): Second defaults tree
+
+            Returns:
+                    None
+    '''
+    for k, v in new_tree.items():
+        if k in tree:
+            if isinstance(v, Dict):
+                merge_defaults_trees(tree[k], v)
+            else:
+                if k[-1] != "!":
+                    raise RedundantDefaultException(f"Field {k} appeared in the defaults tree multiple times. Use override (!) at the end of field name to allow.")
+                elif override:
+                    tree[k] = v
+        else:
+            tree[k] = v
+
+
+def build_config(base_config: T, base_defaults_tree: Dict, schema_path: str, base_dir: Path, args: Dict, loaded_config: Optional[Dict]) -> None:
     '''
     Builds a single config object (and not any nested config objects) at a
     specified schema_path from the base schema using command line arguments and
@@ -71,6 +210,8 @@ def build_config(base_config: T, schema_path: str, base_dir: Path, args: Dict) -
                     base_config (T): Base config object that contains a schema
                         at schema_path that will be initialized and filled in
                         this function.
+                    base_defaults_tree (Dict): Base defaults tree containing all
+                        defaults, must be traversed to get local defaults tree
                     schema_path (str): Path from the base schema to the target
                         schema
                     base_dir (Path): Directory to base schema configuration
@@ -82,7 +223,6 @@ def build_config(base_config: T, schema_path: str, base_dir: Path, args: Dict) -
                     None
     '''
 
-    #local_args = {k[len(schema_path):].split(".")[0]: v for k, v in args.items() if k.startswith(schema_path) and not "." in k[len(schema_path)+1:] and len(k) > len(schema_path) + 1}
     local_args = {}
     for k, v in args.items():
         if k.startswith(schema_path):
@@ -91,16 +231,21 @@ def build_config(base_config: T, schema_path: str, base_dir: Path, args: Dict) -
                 lk = lk[1:] if lk.startswith(".") else lk
                 if not "." in lk:
                     local_args[lk] = v
+    if "load_path" in local_args:
+        del local_args["load_path"]
 
+    config, defaults_tree = traverse_to_config(base_config, base_defaults_tree, [] if schema_path == "" else schema_path.split("."))
 
-    config, dir = traverse_to_config(base_config, base_dir, [] if schema_path == "" else schema_path.split("."))
-
-    defaults_tree = get_defaults_tree(dir)
-
+    # Remove nested configs from defaults tree
+    local_defaults_tree = {}
+    for field, v in defaults_tree.items():
+        type = config.__dataclass_fields__[field].type
+        if not issubclass(type, Config) and not issubclass(type, MultiConfig):
+            local_defaults_tree[field] = v
 
     dependencies = {r.path: get_config(base_config, [] if r.path == "" else r.path.split(".")) for r in config._default_dependencies}
     defaults = {}
-    build_defaults(defaults, defaults_tree, dependencies)
+    build_defaults(defaults, local_defaults_tree, dependencies)
 
     # Execute overrides
     for k, v in defaults.items():
@@ -109,30 +254,59 @@ def build_config(base_config: T, schema_path: str, base_dir: Path, args: Dict) -
             del defaults[k]
 
     # Set default values in config based on defaults and args
-    for k, v in local_args.items():
+    for k in config.__dataclass_fields__.keys():
+        is_mc = issubclass(config.__dataclass_fields__[k].type, MultiConfig)
+        is_c = not is_mc and issubclass(config.__dataclass_fields__[k].type, Config)
         val = MV
-        if not v is None:
-            val = local_args[k]
-        elif k in defaults:
-            val = defaults[k]
+        no_val = False
 
-        if issubclass(config.__dataclass_fields__[k].type, MultiConfig):
-            val = config.__dataclass_fields__[k].type(val)
+        # First, check command line args
+        if not is_c and not local_args[k] is None:
+            val = local_args[k]
+        else:
+            # Second, check loaded config
+            if not loaded_config is None:
+                if not k in loaded_config:
+                    raise InvalidLoadedConfigException(f"Field {k} not in loaded config.")  # Does not throw this error if missing value is specified in local_args
+
+                if not loaded_config[k] is None:
+                    if is_mc:
+                        if type(loaded_config[k]) is dict:
+                            if "_selected" in loaded_config[k]:
+                                val = loaded_config[k]["_selected"]
+                            else:
+                                raise InvalidLoadedConfigException(f"Field {k} should be MultiConfig but loaded config is not formatted properly for this (no _selected)")
+                        else:
+                            raise InvalidLoadedConfigException(f"Field {k} should be a MultiConfig but loaded config is not formatted properly for this (no nested data)")
+                    else:
+                        val = loaded_config[k]
+
+            # Third, check defaults
+            elif k in defaults:
+                val = defaults[k]
+
+            else:
+                no_val = True
+
+        if is_mc:
+            if no_val:
+                pass
+            else:
+                val = config.__dataclass_fields__[k].type(val)
 
         setattr(config, k, val)
 
-def traverse_to_config(config: Config, dir: Path, schema_path: List[str]) -> (Config, Path):
+def traverse_to_config(config: Config, tree: Dict, schema_path: List[str]) -> (Config, Path):
     '''
     Traverses to a specified schema_path given a path through the nested schemas
     and returns the config once reached. Initializes any parts of the config in
     the path that have not yet been initialized. Also traverses through the
-    folder structure to the corresponding folder for the config and returns the
-    directory for this. This function allows building nested configs before
+    defaults tree structure. This function allows building nested configs before
     their parents and vice versa.
 
             Parameters:
                     config (Config): Config object where schema_path starts.
-                    dir (Path): Directory of defaults folder for 'config'
+                    tree (Path): Defaults tree at config
                     schema_path (List[str]): A path starting at 'config' that
                         ends at the desired config object. The first item in the
                         list should be the name of the Config or MultiConfig
@@ -142,13 +316,11 @@ def traverse_to_config(config: Config, dir: Path, schema_path: List[str]) -> (Co
             Returns:
                     config (Config): Reference to the config at the requested
                         schema_path
-                    dir (Path): Directory of the corresponding defaults folder
+                    tree (Dict): Defaults tree for returned config
 
     '''
-    # print("  traverse to",schema_path)
-
     if len(schema_path) < 1:
-        return config, dir
+        return config, tree
     field = schema_path[0]
     next_path = schema_path[1:] if len(schema_path) > 1 else []
 
@@ -164,10 +336,10 @@ def traverse_to_config(config: Config, dir: Path, schema_path: List[str]) -> (Co
 
     field_val = getattr(config, field)
     if isinstance(field_val, MultiConfig):
-        next_dir = dir / field if field in field_val.superschema().__dataclass_fields__ else dir / field_val._selected / field
-        return traverse_to_config(field_val._config, next_dir, next_path)
+        next_tree = tree[field][field_val._selected] if field in tree and field_val._selected in tree[field] else {}
+        return traverse_to_config(field_val._config, next_tree, next_path)
     elif isinstance(field_val, Config):
-        return traverse_to_config(getattr(config, field), dir / field, next_path)
+        return traverse_to_config(getattr(config, field), tree[field] if field in tree else {}, next_path)
     else:
         raise EverythingHasBrokenException("Something has gone terribly wrong!")
 
@@ -197,88 +369,19 @@ def get_config(config: Config, schema_path: List[str]) -> Config:
 
     return get_config(getattr(config, field), schema_path[1:] if len(schema_path) > 1 else [])
 
-def get_defaults_tree(config_dir: Path) -> Dict:
-    '''
-    Reads all default yaml files (either defaults.yaml or others in the defaults
-    directory for the given config directory) and combines them into a single
-    dictionary. Does not yet process queries, just merges all of them into
-    a single tree.
+def get_loaded_config(loaded_config: Dict, schema_path: List[str]) -> Dict:
+    if len(schema_path) < 1:
+        return loaded_config
+    field = schema_path[0]
 
-            Parameters:
-                    config_dir (Path): Directory of config folder
-
-            Returns:
-                    defaults (Dict): Tree of all defaults
-
-    '''
-    defaults = {}
-
-    defaults_yaml = config_dir / "defaults.yaml"
-    if defaults_yaml.exists() and not defaults_yaml.is_dir():
-        with defaults_yaml.open() as f:
-            defaults = yaml.load(f, Loader=yaml.CLoader)
-
-    defaults_dir = config_dir / "defaults"
-    if defaults_dir.exists() and defaults_dir.is_dir():
-        fill_in_defaults(defaults, defaults_tree_from_dir(defaults, defaults_dir))
-
-    return defaults
-
-def defaults_tree_from_dir(base_config: T, dir: Path) -> Dict:
-    '''
-    Creates a defaults tree from a given folder.
-
-            Parameters:
-                    base_config: Base level config
-                    dir: Target folder directory
-
-            Returns:
-                    None
-
-    '''
-    d = {}
-    for f in dir.iterdir():
-        name = None
-
-        if f.is_dir():
-            name = f
-            d[name] = defaults_tree_from_dir(base_config, f)
-        else:
-            for ext in YAML_EXTS:
-                if str(f).endswith(ext):
-                    name = str(f).split(".")[0]
-                    with f.open() as file:
-                        d[name] = yaml.load(file, Loader=yaml.CLoader)
-                    break
-
-            if name is None:
-                raise warnings.warn("Unknown file {} found in config folder. Ignoring.".format(str(f)))
-
-    return d
-
-def fill_in_defaults(defaults: Dict, new_defaults: Dict) -> None:
-    '''
-    Helper function for merging two defaults trees together.
-
-            Parameters:
-                    defaults (Dict): Starting defaults tree
-                    new_defaults (Dict): Defaults tree from a new source to be
-                        added to 'defaults'.
-
-            Returns:
-                    None
-
-    '''
-    for k in new_defaults.keys():
-        if k in defaults:
-            if isinstance(defaults[k], Dict):
-                fill_in_defaults(defaults[k], new_defaults[k])
-            else:
-                raise EverythingHasBrokenException("Something has gone terribly wrong!")
+    if field in loaded_config:
+        return get_loaded_config(loaded_config[field], schema_path[1:] if len(schema_path) > 1 else [])
+    else:
+        raise InvalidLoadedConfigException(f"Loaded config does not contain field {field}.")
 
 def build_defaults(defaults: Dict, defaults_tree: Dict, dependencies: Dict[str, Union[Config, MultiConfig]]) -> None:
     '''
-    Takes a defaults tree and a list of references to already-processed
+    Takes a defaults tree for only this  and a list of references to already-processed
     dependencies for a single config object and determines a final list of
     defaults based on query results.
 

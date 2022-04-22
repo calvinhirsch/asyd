@@ -1,0 +1,15 @@
+In defaults, allow for config nesting inside queries. Right now, queries must be the most nested thing, but something like this could be allowed:
+?field_a:
+    >10:
+        field_b: 5
+        nested_config:
+            field_c: 10
+
+if you preprocess by copying the query and pasting it into the most nested possible location, like:
+?field_a:
+    >10:
+        field_b: 5
+nested_config:
+    ?field_a:
+        >10:
+            field_c: 10

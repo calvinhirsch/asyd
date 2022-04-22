@@ -1,5 +1,10 @@
 trigger all error types
 complex dependencies
 child depends on parent
-all query ops
+all query ops in yaml form
+all query ops in folder form
 overlapping defaults.yaml and defaults folder (in a way that is OK)
+valid override
+multiconfig tests
+loading a bunch of scenarios
+loading with custom parser and passing load_dir

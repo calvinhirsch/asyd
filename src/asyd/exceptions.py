@@ -30,6 +30,9 @@ class InvalidDefaultFileException(Exception):
 class RedundantDefaultException(Exception):
     pass
 
+class InvalidLoadedConfigException(Exception):
+    pass
+
 
 # Other
 

@@ -3,9 +3,12 @@ from argparse import ArgumentParser
 from .serialization import dictize
 from .config import Config, MultiConfig
 
-def parse(schema: Type[Config], args: List[str] = []):
-    parser = ArgumentParser()
+def parse(schema: Type[Config], parser: Optional[ArgumentParser] = None, args: List[str] = [], add_load_arg: bool = True):
+    parser = ArgumentParser() if parser is None else parser
     parse_helper(schema, parser, "", set())
+
+    if add_load_arg:
+        parser.add_argument("--load_path", type=str)
 
     return vars(parser.parse_args(args))
 
@@ -14,7 +17,7 @@ def parse_helper(schema: Type[Config], parser: ArgumentParser, prefix: str, alre
         if issubclass(field.type, Config):
             parse_helper(field.type, parser, prefix + name + ".", already_added)
         elif issubclass(field.type, MultiConfig):
-            add_to_parser("--" + prefix + name, str, parser, already_added, choices=field.type.choices.keys())
+            add_to_parser("--" + prefix + name, str, parser, already_added, choices=field.type._options.keys())
 
             for cls in field.type._options.values():
                 parse_helper(cls, parser, prefix + name + ".", already_added)

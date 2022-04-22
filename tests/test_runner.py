@@ -33,8 +33,8 @@ def test():
             try:
                 cfg = build(import_py_file(config_file).BaseConfig, scenario_path / "config", args=[] if args == "" else args.split(" "))
             except Exception as e:
-                assert type(e).__name__ == expected_exception
                 raise e
+                assert type(e).__name__ == expected_exception
 
             if not expected_result is None:
                 assert expected_result == dictize(cfg)

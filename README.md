@@ -92,8 +92,8 @@ config/
   nested_config_b/
     defaults/
       ?nested_config_a.field_a/
-        \>50.yaml  # contains "field_b: 51"
-        \<50.yaml  # contains "field_b: 49"
+        >50.yaml  # contains "field_b: 51"
+        <50.yaml  # contains "field_b: 49"
         =50.yaml  # contains "field_b: 50"
 ```
 ... and if nested_config_a had a second parameter field_a2 ...
@@ -103,14 +103,14 @@ config/
   nested_config_b/
     defaults/
       ?nested_config_a.field_a/
-        \>50/
+        >50/
           ?nested_config_a.field_a2/
-            \>0.yaml  # contains field_b: 52
-            \<=0.yaml  # contains field_b: 51
-        \<50/
+            >0.yaml  # contains field_b: 52
+            <=0.yaml  # contains field_b: 51
+        <50/
           ?nested_config_a.field_a2/
-            \>0.yaml  # contains field_b: 49
-            \<=0.yaml  # contains field_b: 48
+            >0.yaml  # contains field_b: 49
+            <=0.yaml  # contains field_b: 48
         =50.yaml  # contains "field_b: 49"
 ```
 

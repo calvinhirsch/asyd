@@ -6,7 +6,6 @@ from .exceptions import InvalidOptionException, RequiredReferenceException, Inva
 import inspect
 import copy
 
-
 class Config:
     _default_dependencies: ClassVar[Set["ConfigRef"]] = {}
     __dataclass_fields__: ClassVar[Dict[str, Any]]
@@ -29,7 +28,7 @@ class MultiConfig(Generic[S], metaclass=MultiMeta):
             self._config = self._options[selection]()
             self._selected = selection
         else:
-            raise InvalidOptionException("Selected option '{}' does not exist in MultiConfig. Options are {}".format(option, self._options.keys()))
+            raise InvalidOptionException("Selected option '{}' does not exist in MultiConfig. Options are {}".format(selection, self._options.keys()))
 
     @classmethod
     def superschema(cls) -> Type[S]:
@@ -124,7 +123,7 @@ def validate_refs(base_schema: Type[Config]) -> None:
                     validate_refs_helper(field.type.superschema(), next_path)
                     for cls in field.type._options.values():
                         validate_refs_helper(cls, next_path)
-                    field.type.superschema()._default_dependencies.add(ValidConfigRef(ConfigRef(path), schema))
+                    field.type.superschema()._default_dependencies.add(ValidConfigRef(ConfigRef("" if path == "." else path), schema))
 
         new_dd = set()
         for ref in schema._default_dependencies:

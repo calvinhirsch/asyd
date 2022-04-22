@@ -42,7 +42,7 @@ def dfs_deps(path: str, schema: Union[Type[Config], Type[MultiConfig]], visited_
     if path in visited_before:
         return ([], set())
     if path in visited_in_branch:
-        raise CyclicDependencyException("Cycle detected in dependencies")
+        raise CyclicDependencyException(f"Cycle detected in dependencies. Cycle includes {path}")
 
     if issubclass(schema, Config):
         deps = schema._default_dependencies

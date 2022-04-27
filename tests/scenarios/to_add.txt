@@ -1,8 +1,8 @@
+all query ops in yaml form
+all query ops in folder form
 trigger all error types
 complex dependencies
 parent depends on child
-all query ops in yaml form
-all query ops in folder form
 overlapping defaults.yaml and defaults folder (in a way that is OK)
 valid override
 loading
